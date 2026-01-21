@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import multer from "multer";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+import { supabase } from "./supabase.js";
+
 
 
 dotenv.config();
@@ -146,10 +148,28 @@ app.post("/generate", upload.single("image"), async (req, res) => {
     const base64Image =
       imageResponse.response.candidates[0].content.parts[0].inlineData.data;
 
-    res.json({
-      success: true,
-      imageBase64: base64Image
-    });
+      const buffer = Buffer.from(base64Image, "base64");
+
+      const fileName = `aniverse-${Date.now()}.jpg`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("aniverse-images")
+          .upload(fileName, buffer, {
+              contentType: "image/jpeg"
+                });
+
+                if (uploadError) {
+                  throw uploadError;
+                  }
+
+                  const { data } = supabase.storage
+                    .from("aniverse-images")
+                      .getPublicUrl(fileName);
+
+                      res.json({
+                        success: true,
+                          imageUrl: data.publicUrl
+                          });
 
   } catch (error) {
       console.error("AniVerse Error:", error.message);
