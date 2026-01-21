@@ -152,14 +152,22 @@ app.post("/generate", upload.single("image"), async (req, res) => {
     });
 
   } catch (error) {
-    console.error("AniVerse Error:", error.message);
+      console.error("AniVerse Error:", error.message);
 
-    res.status(500).json({
-      success: false,
-      error: error.message || "AniVerse AI generation failed"
-    });
+        if (error.message.includes("Quota") || error.message.includes("429")) {
+            return res.status(429).json({
+                  success: false,
+                        error: "Image generation quota exceeded. Please try again later."
+                            });
+                              }
+
+                                res.status(500).json({
+                                    success: false,
+                                        error: "AniVerse AI generation failed"
+                                          });
+                                          }
   }
-});
+);
 
 //// temporary///
 console.log("Gemini key loaded:", process.env.GEMINI_API_KEY ? "YES" : "NO");
