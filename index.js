@@ -1,14 +1,12 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+dotenv.config();
 import multer from "multer";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 import { supabase } from "./supabase.js";
 
-
-
-dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -128,6 +126,32 @@ app.post("/generate", upload.single("image"), async (req, res) => {
       return res.status(400).json({ error: "Name, role, and style are required" });
     }
 
+              // Find user
+          let { data: user } = await supabase
+            .from("users")
+            .select("*")
+            .eq("email", email)
+            .single();
+
+          // Create user if not exists
+          if (!user) {
+            const { data: newUser } = await supabase
+              .from("users")
+              .insert([{ email, credits: 2 }])
+              .select()
+              .single();
+            user = newUser;
+          }
+
+          // Check credits
+          if (user.credits <= 0) {
+            return res.status(403).json({
+              success: false,
+              error: "No credits remaining"
+            });
+          }
+
+
     const prompt = buildPrompt({ name, role, style });
 
     // Step 1: Prompt enhancement
@@ -171,6 +195,25 @@ app.post("/generate", upload.single("image"), async (req, res) => {
                           imageUrl: data.publicUrl
                           });
 
+                          await supabase.from("generations").insert([{
+                          user_id: user.id,
+                          style,
+                          role,
+                          image_url: data.publicUrl
+                        }]);
+
+                        await supabase
+                          .from("users")
+                          .update({ credits: user.credits - 1 })
+                          .eq("id", user.id);
+
+                        await supabase.from("credit_logs").insert([{
+                          user_id: user.id,
+                          change: -1,
+                          reason: "image_generation"
+                        }]);
+
+
   } catch (error) {
       console.error("AniVerse Error:", error.message);
 
@@ -199,6 +242,7 @@ app.listen(PORT, () => {
 });
 
 console.log("Image model in use:", imageModel.model);
-
+console.log("SUPABASE_URL:", process.env.SUPABASE_URL);
+console.log("SUPABASE_SERVICE_ROLE:", process.env.SUPABASE_SERVICE_ROLE ? "YES" : "NO");
 
 export default app;
