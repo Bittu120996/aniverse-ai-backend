@@ -149,6 +149,56 @@ app.get("/gallery", async (req, res) => {
   res.json(data);
 });
 
+// ================= USER PROFILE =================
+app.get("/user", async (req, res) => {
+  try {
+      const { email } = req.query;
+
+          if (!email) return res.status(400).json({ error: "Email is required" });
+
+              const { data: user, error } = await supabase
+                    .from("users")
+                          .select("email, credits, created_at")
+                                .eq("email", email)
+                                      .single();
+
+                                          if (error || !user) {
+                                                return res.status(404).json({ error: "User not found" });
+                                                    }
+
+                                                        res.json(user);
+                                                          } catch (err) {
+                                                              res.status(500).json({ error: err.message });
+                                                                }
+                                                                });
+
+                                                                // ================= USER GALLERY =================
+                                                                app.get("/my-gallery", async (req, res) => {
+                                                                  try {
+                                                                      const { email } = req.query;
+
+                                                                          if (!email) return res.status(400).json({ error: "Email is required" });
+
+                                                                              const { data: user } = await supabase
+                                                                                    .from("users")
+                                                                                          .select("id")
+                                                                                                .eq("email", email)
+                                                                                                      .single();
+
+                                                                                                          if (!user) return res.status(404).json({ error: "User not found" });
+
+                                                                                                              const { data: images } = await supabase
+                                                                                                                    .from("generations")
+                                                                                                                          .select("image_url, style, role, created_at")
+                                                                                                                                .eq("user_id", user.id)
+                                                                                                                                      .order("created_at", { ascending: false });
+
+                                                                                                                                          res.json(images);
+                                                                                                                                            } catch (err) {
+                                                                                                                                                res.status(500).json({ error: err.message });
+                                                                                                                                                  }
+                                                                                                                                                  });
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 3333;
 app.listen(PORT, () => console.log(`AniVerse AI running on ${PORT}`));
