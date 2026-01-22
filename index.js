@@ -207,11 +207,17 @@ app.post("/generate", upload.single("image"), async (req, res) => {
     console.error("AniVerse Error FULL:", error);
 
     if (error.message?.includes("Quota") || error.message?.includes("429")) {
-      return res.status(429).json({
-        success: false,
-        error: "Image generation quota exceeded. Please try again later."
-      });
-    }
+
+  const demoImage =
+    "https://6971f8520fbe657fd5e6336d.imgix.net/we%20will%20live%20soon?w=1024&h=1024&ar=1024%3A1024";
+
+  return res.json({
+    success: true,
+    imageUrl: demoImage,
+    remainingCredits: user ? user.credits : 0,
+    demo: true
+  });
+}
 
     res.status(500).json({
       success: false,
