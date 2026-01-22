@@ -209,7 +209,7 @@ app.post("/generate", upload.single("image"), async (req, res) => {
     if (error.message?.includes("Quota") || error.message?.includes("429")) {
 
   const demoImage =
-    "https://6971f8520fbe657fd5e6336d.imgix.net/we%20will%20live%20soon?w=1024&h=1024&ar=1024%3A1024";
+    "https://images.unsplash.com/photo-1544005313-94ddf0286df2";
 
   return res.json({
     success: true,
