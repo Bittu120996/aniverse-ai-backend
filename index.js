@@ -112,6 +112,8 @@ app.get("/", (req, res) => {
   res.json({ status: "AniVerse AI backend running successfully" });
 });
 
+// ================= GENERATE =================
+
 app.post("/generate", upload.single("image"), async (req, res) => {
   try {
     const { email, name, role, style } = req.body;
@@ -124,7 +126,6 @@ app.post("/generate", upload.single("image"), async (req, res) => {
       return res.status(400).json({ error: "Email, name, role, and style are required" });
     }
 
-    // ===== USER CHECK =====
     let { data: user } = await supabase
       .from("users")
       .select("*")
@@ -147,7 +148,6 @@ app.post("/generate", upload.single("image"), async (req, res) => {
       });
     }
 
-    // ===== GEMINI =====
     const prompt = buildPrompt({ name, role, style });
 
     const textResponse = await textModel.generateContent(prompt);
@@ -179,7 +179,6 @@ app.post("/generate", upload.single("image"), async (req, res) => {
       .from("aniverse-images")
       .getPublicUrl(fileName);
 
-    // ===== DATABASE =====
     await supabase.from("generations").insert([{
       user_id: user.id,
       style,
@@ -198,7 +197,6 @@ app.post("/generate", upload.single("image"), async (req, res) => {
       reason: "image_generation"
     }]);
 
-    // ===== RESPONSE =====
     res.json({
       success: true,
       imageUrl: data.publicUrl,
@@ -219,6 +217,70 @@ app.post("/generate", upload.single("image"), async (req, res) => {
       success: false,
       error: error.message || error.toString()
     });
+  }
+});
+
+// ================= API CONTRACT ENDPOINTS =================
+
+// USER CREDITS
+app.get("/user", async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email) return res.status(400).json({ error: "Email is required" });
+
+    const { data: user } = await supabase
+      .from("users")
+      .select("email, credits")
+      .eq("email", email)
+      .single();
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUBLIC GALLERY
+app.get("/gallery", async (req, res) => {
+  try {
+    const { data } = await supabase
+      .from("generations")
+      .select("image_url, style, role, user_id, created_at")
+      .order("created_at", { ascending: false });
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// USER GALLERY
+app.get("/my-gallery", async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email) return res.status(400).json({ error: "Email is required" });
+
+    const { data: user } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", email)
+      .single();
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const { data } = await supabase
+      .from("generations")
+      .select("image_url, style, role, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
