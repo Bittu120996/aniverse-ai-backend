@@ -4,9 +4,7 @@ import dotenv from "dotenv";
 dotenv.config();
 import multer from "multer";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-
 import { supabase } from "./supabase.js";
-
 
 const app = express();
 app.use(cors());
@@ -116,49 +114,45 @@ app.get("/", (req, res) => {
 
 app.post("/generate", upload.single("image"), async (req, res) => {
   try {
-    const { name, role, style } = req.body;
+    const { email, name, role, style } = req.body;
 
     if (!req.file) {
       return res.status(400).json({ error: "Valid portrait image required" });
     }
 
-    if (!name || !role || !style) {
-      return res.status(400).json({ error: "Name, role, and style are required" });
+    if (!email || !name || !role || !style) {
+      return res.status(400).json({ error: "Email, name, role, and style are required" });
     }
 
-              // Find user
-          let { data: user } = await supabase
-            .from("users")
-            .select("*")
-            .eq("email", email)
-            .single();
+    // ===== USER CHECK =====
+    let { data: user } = await supabase
+      .from("users")
+      .select("*")
+      .eq("email", email)
+      .single();
 
-          // Create user if not exists
-          if (!user) {
-            const { data: newUser } = await supabase
-              .from("users")
-              .insert([{ email, credits: 2 }])
-              .select()
-              .single();
-            user = newUser;
-          }
+    if (!user) {
+      const { data: newUser } = await supabase
+        .from("users")
+        .insert([{ email, credits: 2 }])
+        .select()
+        .single();
+      user = newUser;
+    }
 
-          // Check credits
-          if (user.credits <= 0) {
-            return res.status(403).json({
-              success: false,
-              error: "No credits remaining"
-            });
-          }
+    if (user.credits <= 0) {
+      return res.status(403).json({
+        success: false,
+        error: "No credits remaining"
+      });
+    }
 
-
+    // ===== GEMINI =====
     const prompt = buildPrompt({ name, role, style });
 
-    // Step 1: Prompt enhancement
     const textResponse = await textModel.generateContent(prompt);
     const finalPrompt = textResponse.response.text();
 
-    // Step 2: Image generation
     const imageResponse = await imageModel.generateContent([
       finalPrompt,
       {
@@ -172,67 +166,64 @@ app.post("/generate", upload.single("image"), async (req, res) => {
     const base64Image =
       imageResponse.response.candidates[0].content.parts[0].inlineData.data;
 
-      const buffer = Buffer.from(base64Image, "base64");
+    const buffer = Buffer.from(base64Image, "base64");
+    const fileName = `aniverse-${Date.now()}.jpg`;
 
-      const fileName = `aniverse-${Date.now()}.jpg`;
+    const { error: uploadError } = await supabase.storage
+      .from("aniverse-images")
+      .upload(fileName, buffer, { contentType: "image/jpeg" });
 
-      const { error: uploadError } = await supabase.storage
-        .from("aniverse-images")
-          .upload(fileName, buffer, {
-              contentType: "image/jpeg"
-                });
+    if (uploadError) throw uploadError;
 
-                if (uploadError) {
-                  throw uploadError;
-                  }
+    const { data } = supabase.storage
+      .from("aniverse-images")
+      .getPublicUrl(fileName);
 
-                  const { data } = supabase.storage
-                    .from("aniverse-images")
-                      .getPublicUrl(fileName);
+    // ===== DATABASE =====
+    await supabase.from("generations").insert([{
+      user_id: user.id,
+      style,
+      role,
+      image_url: data.publicUrl
+    }]);
 
-                      res.json({
-                        success: true,
-                          imageUrl: data.publicUrl
-                          });
+    await supabase
+      .from("users")
+      .update({ credits: user.credits - 1 })
+      .eq("id", user.id);
 
-                          await supabase.from("generations").insert([{
-                          user_id: user.id,
-                          style,
-                          role,
-                          image_url: data.publicUrl
-                        }]);
+    await supabase.from("credit_logs").insert([{
+      user_id: user.id,
+      change: -1,
+      reason: "image_generation"
+    }]);
 
-                        await supabase
-                          .from("users")
-                          .update({ credits: user.credits - 1 })
-                          .eq("id", user.id);
-
-                        await supabase.from("credit_logs").insert([{
-                          user_id: user.id,
-                          change: -1,
-                          reason: "image_generation"
-                        }]);
-
+    // ===== RESPONSE =====
+    res.json({
+      success: true,
+      imageUrl: data.publicUrl,
+      remainingCredits: user.credits - 1
+    });
 
   } catch (error) {
-      console.error("AniVerse Error:", error.message);
+    console.error("AniVerse Error FULL:", error);
 
-        if (error.message.includes("Quota") || error.message.includes("429")) {
-            return res.status(429).json({
-                  success: false,
-                        error: "Image generation quota exceeded. Please try again later."
-                            });
-                              }
+    if (error.message?.includes("Quota") || error.message?.includes("429")) {
+      return res.status(429).json({
+        success: false,
+        error: "Image generation quota exceeded. Please try again later."
+      });
+    }
 
-                                res.status(500).json({
-                                    success: false,
-                                        error: "AniVerse AI generation failed"
-                                          });
-                                          }
+    res.status(500).json({
+      success: false,
+      error: error.message || error.toString()
+    });
   }
-);
+});
 
-//// temporary///
+// ================= SERVER =================
+
 console.log("Gemini key loaded:", process.env.GEMINI_API_KEY ? "YES" : "NO");
 
 const PORT = process.env.PORT || 3333;
