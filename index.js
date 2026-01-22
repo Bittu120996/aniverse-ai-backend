@@ -10,127 +10,51 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ================= MULTER IMAGE FILTER =================
-
+// ================= MULTER =================
 const upload = multer({
   fileFilter: (req, file, cb) => {
     const allowed = ["image/jpeg", "image/png", "image/webp"];
-    if (allowed.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only JPG, PNG, and WEBP images are allowed"), false);
-    }
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Only JPG, PNG, and WEBP images are allowed"), false);
   }
 });
 
-// ================= GEMINI SETUP =================
-
+// ================= GEMINI =================
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
 const textModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 const imageModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash-image" });
 
-// ================= PROMPT ENGINE =================
-
+// ================= PROMPT =================
 function buildPrompt({ name, role, style }) {
-  const powers = [
-    "energy manipulation",
-    "shadow bending",
-    "light control",
-    "time distortion",
-    "spiritual aura projection",
-    "elemental fusion",
-    "dimensional blade control",
-    "cosmic resonance",
-    "telekinetic force",
-    "soul flame awakening"
-  ];
-
-  const power = powers[Math.floor(Math.random() * powers.length)];
-
-  return `
-Create a cinematic anime movie frame inspired by the ${style} visual universe.
-
-Main Character Identity Rules:
-- The main character must be an anime-style transformation of the uploaded face.
-- The face must clearly resemble the same real person.
-- Facial proportions, structure, and expression must match the uploaded portrait.
-- The face must be adapted naturally into the anime universe style, not copied from any existing anime character.
-- The character must look like a native character of this anime universe while still being recognizable as the same person.
-- Gender must remain exactly the same as in the uploaded image.
-- Do not change ethnicity, age impression, or identity.
-
-Character Presence:
-- The main character is the visual focus and emotional center of the frame.
-
-Name and Role Display:
-- Show the name "${name}" and role "${role}" inside the frame.
-- Typography must match the anime universe aesthetic.
-- Font size must be balanced and cinematic.
-- Text must never overshadow the main character.
-
-Unique Ability:
-- The main character possesses a unique power: ${power}.
-- The power should be visible through aura, light effects, environment reaction, or energy flow.
-
-Background Characters:
-- Include multiple side characters that belong naturally to the same anime universe style.
-- Side characters must support the narrative and scene depth.
-
-Scene Composition:
-- Cinematic depth of field.
-- Dynamic lighting and shadows.
-- Dramatic atmosphere.
-- Balanced color grading.
-- Anime movie quality composition.
-
-Immersion Rule:
-- The viewer must feel that the user truly exists inside this anime universe.
-
-Camera:
-- Cinematic anime lens perspective.
-- Sharp focus on main character.
-- Slight background blur.
-
-Quality and Integrity:
-- Ultra high resolution.
-- No watermark.
-- No distortion.
-- No western realism.
-
-Important Restrictions:
-- Never copy or imitate any specific anime character face.
-- Never reference real anime series.
-- Always prioritize the uploaded face identity.
-- The character must look original, authentic, and universe-consistent.
-`;
+  return `Create a cinematic anime frame in ${style} style for ${name} as ${role}.`;
 }
 
 // ================= ROUTES =================
-
 app.get("/", (req, res) => {
   res.json({ status: "AniVerse AI backend running successfully" });
 });
 
 // ================= GENERATE =================
-
 app.post("/generate", upload.single("image"), async (req, res) => {
+
+  let user; // <<< FIXED SCOPE
+
   try {
     const { email, name, role, style } = req.body;
 
-    if (!req.file) {
+    if (!req.file)
       return res.status(400).json({ error: "Valid portrait image required" });
-    }
 
-    if (!email || !name || !role || !style) {
+    if (!email || !name || !role || !style)
       return res.status(400).json({ error: "Email, name, role, and style are required" });
-    }
 
-    let { data: user } = await supabase
+    let { data } = await supabase
       .from("users")
       .select("*")
       .eq("email", email)
       .single();
+
+    user = data;
 
     if (!user) {
       const { data: newUser } = await supabase
@@ -141,12 +65,8 @@ app.post("/generate", upload.single("image"), async (req, res) => {
       user = newUser;
     }
 
-    if (user.credits <= 0) {
-      return res.status(403).json({
-        success: false,
-        error: "No credits remaining"
-      });
-    }
+    if (user.credits <= 0)
+      return res.status(403).json({ success: false, error: "No credits remaining" });
 
     const prompt = buildPrompt({ name, role, style });
 
@@ -175,7 +95,7 @@ app.post("/generate", upload.single("image"), async (req, res) => {
 
     if (uploadError) throw uploadError;
 
-    const { data } = supabase.storage
+    const { data: fileData } = supabase.storage
       .from("aniverse-images")
       .getPublicUrl(fileName);
 
@@ -183,7 +103,7 @@ app.post("/generate", upload.single("image"), async (req, res) => {
       user_id: user.id,
       style,
       role,
-      image_url: data.publicUrl
+      image_url: fileData.publicUrl
     }]);
 
     await supabase
@@ -197,111 +117,40 @@ app.post("/generate", upload.single("image"), async (req, res) => {
       reason: "image_generation"
     }]);
 
-    res.json({
+    return res.json({
       success: true,
-      imageUrl: data.publicUrl,
+      imageUrl: fileData.publicUrl,
       remainingCredits: user.credits - 1
     });
 
   } catch (error) {
     console.error("AniVerse Error FULL:", error);
 
+    // ===== DEMO FALLBACK =====
     if (error.message?.includes("Quota") || error.message?.includes("429")) {
+      return res.json({
+        success: true,
+        imageUrl: "https://6971f8520fbe657fd5e6336d.imgix.net/we%20will%20live%20soon?w=594&h=1024&rect=223%2C0%2C594%2C1024",
+        remainingCredits: user ? user.credits : 0,
+        demo: true
+      });
+    }
 
-  const demoImage =
-    "https://images.unsplash.com/photo-1544005313-94ddf0286df2";
-
-  return res.json({
-    success: true,
-    imageUrl: demoImage,
-    remainingCredits: user ? user.credits : 0,
-    demo: true
-  });
-}
-
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: error.message || error.toString()
     });
   }
 });
 
-// ================= API CONTRACT ENDPOINTS =================
-
-// USER CREDITS
-app.get("/user", async (req, res) => {
-  try {
-    const { email } = req.query;
-
-    if (!email) return res.status(400).json({ error: "Email is required" });
-
-    const { data: user } = await supabase
-      .from("users")
-      .select("email, credits")
-      .eq("email", email)
-      .single();
-
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PUBLIC GALLERY
+// ================= API =================
 app.get("/gallery", async (req, res) => {
-  try {
-    const { data } = await supabase
-      .from("generations")
-      .select("image_url, style, role, user_id, created_at")
-      .order("created_at", { ascending: false });
-
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// USER GALLERY
-app.get("/my-gallery", async (req, res) => {
-  try {
-    const { email } = req.query;
-
-    if (!email) return res.status(400).json({ error: "Email is required" });
-
-    const { data: user } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", email)
-      .single();
-
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    const { data } = await supabase
-      .from("generations")
-      .select("image_url, style, role, created_at")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
-
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const { data } = await supabase.from("generations").select("*");
+  res.json(data);
 });
 
 // ================= SERVER =================
-
-console.log("Gemini key loaded:", process.env.GEMINI_API_KEY ? "YES" : "NO");
-
 const PORT = process.env.PORT || 3333;
-
-app.listen(PORT, () => {
-  console.log(`AniVerse AI backend running on port ${PORT}`);
-});
-
-console.log("Image model in use:", imageModel.model);
-console.log("SUPABASE_URL:", process.env.SUPABASE_URL);
-console.log("SUPABASE_SERVICE_ROLE:", process.env.SUPABASE_SERVICE_ROLE ? "YES" : "NO");
+app.listen(PORT, () => console.log(`AniVerse AI running on ${PORT}`));
 
 export default app;
